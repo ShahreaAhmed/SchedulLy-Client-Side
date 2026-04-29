@@ -9,15 +9,14 @@ import {
 } from "firebase/auth";
 import { auth, googleProvider } from "../config/firebase";
 import api from "../config/api";
-
+ 
 const AuthContext = createContext(null);
-
+ 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);       // Firebase user
-  const [dbUser, setDbUser] = useState(null);   // MongoDB user (has role)
+  const [user, setUser] = useState(null);
+  const [dbUser, setDbUser] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  // Sync user to MongoDB after login
+ 
   const syncUser = async (role = null, subject = "", displayName = "") => {
     try {
       const body = {};
@@ -28,12 +27,11 @@ export const AuthProvider = ({ children }) => {
       setDbUser(res.data);
       return res.data;
     } catch (err) {
-      console.error("Sync error:", err);
+      console.error("Sync error:", err.response?.data || err.message);
       return null;
     }
   };
-
-  // Get existing user from DB
+ 
   const fetchDbUser = async () => {
     try {
       const res = await api.get("/api/users/me");
@@ -43,11 +41,12 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
   };
-
+ 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
+        await firebaseUser.getIdToken(true);
         await fetchDbUser();
       } else {
         setDbUser(null);
@@ -56,48 +55,42 @@ export const AuthProvider = ({ children }) => {
     });
     return unsub;
   }, []);
-
+ 
   const loginWithGoogle = async (role, subject = "") => {
     const result = await signInWithPopup(auth, googleProvider);
+    await result.user.getIdToken(true);
     const synced = await syncUser(role, subject);
     return synced;
   };
-
+ 
   const loginWithEmail = async (email, password) => {
     const result = await signInWithEmailAndPassword(auth, email, password);
-    const synced = await fetchDbUser();
-    return synced;
+    await result.user.getIdToken(true);
+    const dbUserData = await fetchDbUser();
+    return dbUserData;
   };
-
+ 
   const registerWithEmail = async (email, password, displayName, role, subject = "") => {
     const result = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(result.user, { displayName });
+    await result.user.getIdToken(true);
     const synced = await syncUser(role, subject, displayName);
     return synced;
   };
-
+ 
   const logout = async () => {
     await signOut(auth);
     setUser(null);
     setDbUser(null);
   };
-
+ 
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        dbUser,
-        loading,
-        loginWithGoogle,
-        loginWithEmail,
-        registerWithEmail,
-        logout,
-        syncUser,
-      }}
+      value={{ user, dbUser, loading, loginWithGoogle, loginWithEmail, registerWithEmail, logout, syncUser }}
     >
       {children}
     </AuthContext.Provider>
   );
 };
-
+ 
 export const useAuth = () => useContext(AuthContext);
